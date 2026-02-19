@@ -1,0 +1,85 @@
+name: Update Scores
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"  # every 5 minutes
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout scoreboard repo
+        uses: actions/checkout@v4
+
+      - name: Collect solves from flag repos
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ORG: ${{ github.repository_owner }}
+        run: |
+          python3 - <<'EOF'
+          import json, os, subprocess, sys
+          from datetime import datetime, timezone
+
+          org = os.environ["ORG"]
+          challenges = list(range(1, 8))  # 1–7
+
+          # Map: username -> {solved: set of ints, first_solve: datetime}
+          players = {}
+
+          for cid in challenges:
+              repo = f"{org}/flag-{cid}"
+              result = subprocess.run(
+                  ["gh", "issue", "list",
+                   "--repo", repo,
+                   "--state", "all",
+                   "--json", "author,createdAt",
+                   "--limit", "1000"],
+                  capture_output=True, text=True
+              )
+              if result.returncode != 0:
+                  print(f"Warning: could not read {repo}: {result.stderr.strip()}", file=sys.stderr)
+                  continue
+
+              issues = json.loads(result.stdout or "[]")
+              for issue in issues:
+                  username = issue["author"]["login"]
+                  created = issue["createdAt"]
+                  if username not in players:
+                      players[username] = {"solved": set(), "first_solve": created}
+                  players[username]["solved"].add(cid)
+                  if created < players[username]["first_solve"]:
+                      players[username]["first_solve"] = created
+
+          output = {
+              "updated_at": datetime.now(timezone.utc).isoformat(),
+              "players": [
+                  {
+                      "username": u,
+                      "solved": sorted(list(v["solved"])),
+                      "first_solve": v["first_solve"],
+                  }
+                  for u, v in players.items()
+              ]
+          }
+
+          with open("scores.json", "w") as f:
+              json.dump(output, f, indent=2)
+
+          print(f"Updated scores: {len(players)} participants", file=sys.stderr)
+          EOF
+
+      - name: Commit updated scores
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add scores.json
+          if git diff --cached --quiet; then
+            echo "No changes to scores"
+          else
+            git commit -m "chore: update scores [skip ci]"
+            git push
+          fi
