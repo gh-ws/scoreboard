@@ -10,7 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      issues: read
       pages: write
       id-token: write
 
@@ -22,62 +21,51 @@ jobs:
       - name: Checkout scoreboard repo
         uses: actions/checkout@v4
 
+      - name: Generate token scoped to all flag repos
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: flag-1,flag-2,flag-3,flag-4,flag-5,flag-6,flag-7
+
       - name: Collect solves from flag repos
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           ORG: ${{ github.repository_owner }}
         run: |
-          python3 - <<'EOF'
-          import json, os, subprocess, sys
-          from datetime import datetime, timezone
+          # Build scores.json from issues in flag-1 through flag-7.
+          # Each issue body must contain a line: user: <username>
+          # Issues without that line are ignored.
 
-          org = os.environ["ORG"]
-          challenges = list(range(1, 8))  # 1–7
+          players='{}'
 
-          # Map: username -> {solved: set of ints, first_solve: datetime}
-          players = {}
+          for i in 1 2 3 4 5 6 7; do
+            gh issue list \
+              --repo "$ORG/flag-$i" \
+              --state all \
+              --json body,createdAt \
+              --limit 1000 \
+            | jq -r '.[] | [.createdAt, (.body | split("\n")[] | select(test("^user:")) | ltrimstr("user:") | ltrimstr(" ") | rtrimstr(" "))] | @tsv' \
+            | while IFS=$'\t' read -r created username; do
+                [ -z "$username" ] && continue
+                echo "$i $created $username"
+              done
+          done \
+          | jq -Rs '
+            split("\n") | map(select(length > 0)) |
+            map(split(" ") | {cid: .[0]|tonumber, created: .[1], user: .[2]}) |
+            group_by(.user) |
+            map({
+              username: .[0].user,
+              solved: (map(.cid) | unique | sort),
+              first_solve: (map(.created) | sort | .[0])
+            }) |
+            {updated_at: now | todate, players: .}
+          ' > scores.json
 
-          for cid in challenges:
-              repo = f"{org}/flag-{cid}"
-              result = subprocess.run(
-                  ["gh", "issue", "list",
-                   "--repo", repo,
-                   "--state", "all",
-                   "--json", "author,createdAt",
-                   "--limit", "1000"],
-                  capture_output=True, text=True
-              )
-              if result.returncode != 0:
-                  print(f"Warning: could not read {repo}: {result.stderr.strip()}", file=sys.stderr)
-                  continue
-
-              issues = json.loads(result.stdout or "[]")
-              for issue in issues:
-                  username = issue["author"]["login"]
-                  created = issue["createdAt"]
-                  if username not in players:
-                      players[username] = {"solved": set(), "first_solve": created}
-                  players[username]["solved"].add(cid)
-                  if created < players[username]["first_solve"]:
-                      players[username]["first_solve"] = created
-
-          output = {
-              "updated_at": datetime.now(timezone.utc).isoformat(),
-              "players": [
-                  {
-                      "username": u,
-                      "solved": sorted(list(v["solved"])),
-                      "first_solve": v["first_solve"],
-                  }
-                  for u, v in players.items()
-              ]
-          }
-
-          with open("scores.json", "w") as f:
-              json.dump(output, f, indent=2)
-
-          print(f"Updated scores: {len(players)} participants", file=sys.stderr)
-          EOF
+          echo "Participants: $(jq '.players | length' scores.json)"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

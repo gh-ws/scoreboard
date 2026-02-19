@@ -190,13 +190,13 @@
 
   <script>
     const CHALLENGE_META = [
-      { id: 1, label: "C1", title: "Secret in Artifact",        difficulty: "🟢" },
-      { id: 2, label: "C2", title: "Untrusted Code Checkout",   difficulty: "🟢" },
-      { id: 3, label: "C3", title: "PR Title Injection",        difficulty: "🟡" },
-      { id: 4, label: "C4", title: "Issue Comment Injection",   difficulty: "🟡" },
-      { id: 5, label: "C5", title: "GHCR Image Extraction",     difficulty: "🟠" },
-      { id: 6, label: "C6", title: "Encoded Secret in Artifact",difficulty: "🟠" },
-      { id: 7, label: "C7", title: "Runtime Token Abuse",       difficulty: "🔴" },
+      { id: 1, label: "C1", difficulty: "🟢" },
+      { id: 2, label: "C2", difficulty: "🟢" },
+      { id: 3, label: "C3", difficulty: "🟡" },
+      { id: 4, label: "C4", difficulty: "🟡" },
+      { id: 5, label: "C5", difficulty: "🟠" },
+      { id: 6, label: "C6", difficulty: "🟠" },
+      { id: 7, label: "C7", difficulty: "🔴" },
     ];
 
     async function loadScores() {
@@ -224,11 +224,11 @@
 
       // Build legend
       const legend = document.getElementById("legend");
+      legend.innerHTML = "";
       CHALLENGE_META.forEach(c => {
         const span = document.createElement("span");
         span.className = `badge badge-${c.id}`;
-        span.title = c.title;
-        span.textContent = `${c.difficulty} ${c.label} – ${c.title}`;
+        span.textContent = `${c.difficulty} ${c.label}`;
         legend.appendChild(span);
       });
       legend.style.display = "flex";
@@ -237,6 +237,7 @@
       players.sort((a, b) => b.solved.length - a.solved.length || new Date(a.first_solve) - new Date(b.first_solve));
 
       const tbody = document.getElementById("rows");
+      tbody.innerHTML = "";
       players.forEach((p, i) => {
         const rank = i + 1;
         const rankClass = rank === 1 ? "gold" : rank === 2 ? "silver" : rank === 3 ? "bronze" : "";
@@ -264,7 +265,7 @@
     function renderBadges(solved) {
       return CHALLENGE_META
         .filter(c => solved.includes(c.id))
-        .map(c => `<span class="badge badge-${c.id}" title="${c.title}">${c.difficulty} ${c.label}</span>`)
+        .map(c => `<span class="badge badge-${c.id}">${c.difficulty} ${c.label}</span>`)
         .join("");
     }
 
